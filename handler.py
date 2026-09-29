@@ -173,6 +173,16 @@ def _upload_to_r2(local_path: Path, user_id: str) -> str:
 
 def handler(job: dict) -> dict:
     job_input = job["input"]
+    # Platform smoke-test hook (see .runpod/tests.json): a real job always
+    # blocks on _wait_for_models_ready(), which the automated test harness
+    # can never satisfy (it doesn't attach a network volume - confirmed
+    # live, twice, on two different deploy flows). This lets the platform's
+    # required-at-least-one-test config exercise "does the container boot
+    # and answer a job" honestly, without claiming to validate model
+    # loading it structurally cannot reach.
+    if job_input.get("ping"):
+        return {"pong": True}
+
     user_id = job_input["userId"]
     scene = job_input["scene"]
     character_refs = job_input.get("characterRefs") or {}

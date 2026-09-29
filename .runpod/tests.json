@@ -1,5 +1,11 @@
 {
-  "tests": [],
+  "tests": [
+    {
+      "name": "container-boots-and-answers",
+      "input": { "ping": true },
+      "timeout": 30000
+    }
+  ],
   "config": {
     "gpuTypeId": "NVIDIA A100 80GB PCIe",
     "gpuCount": 1
