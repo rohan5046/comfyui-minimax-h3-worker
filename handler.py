@@ -62,8 +62,17 @@ def _download_character_refs(character_refs: dict) -> dict:
 
 def _queue_prompt(graph: dict) -> str:
     r = requests.post(f"{COMFYUI_URL}/prompt", json={"prompt": graph}, timeout=30)
-    r.raise_for_status()
-    body = r.json()
+    # ComfyUI answers a validation failure with HTTP 400 and the actual
+    # reason in the body ({"error": {...}, "node_errors": {...}}) - reading
+    # the body BEFORE raise_for_status() is what surfaces that reason
+    # instead of a useless generic "400 Client Error".
+    try:
+        body = r.json()
+    except ValueError:
+        body = None
+    if not r.ok:
+        detail = body if body is not None else r.text
+        raise RuntimeError(f"ComfyUI rejected the workflow ({r.status_code}): {detail}")
     if body.get("error"):
         raise RuntimeError(f"ComfyUI rejected the workflow: {body['error']}")
     return body["prompt_id"]
@@ -88,13 +97,15 @@ def _wait_for_completion(prompt_id: str) -> dict:
 
 def _extract_video_file(history_entry: dict) -> Path:
     outputs = history_entry.get("outputs", {}).get(SAVE_VIDEO_NODE_ID, {})
-    # SaveVideo's output key - checking all three ComfyUI's built-in save
-    # nodes commonly use, since this wasn't confirmed against a live run.
-    for key in ("videos", "gifs", "images"):
-        items = outputs.get(key)
-        if items:
-            item = items[0]
-            return COMFYUI_OUTPUT_DIR / item.get("subfolder", "") / item["filename"]
+    # SaveVideo (comfy_api/latest/_ui.py, class PreviewVideo.as_dict) returns
+    # {"images": [...], "animated": (True,)} - confirmed against ComfyUI's
+    # own source, not the SaveImage node's key by coincidence: SaveVideo
+    # reuses it deliberately so older frontends that only know "images"
+    # still render it.
+    items = outputs.get("images")
+    if items:
+        item = items[0]
+        return COMFYUI_OUTPUT_DIR / item.get("subfolder", "") / item["filename"]
     raise RuntimeError(f"No video found in history output for node {SAVE_VIDEO_NODE_ID}: {outputs}")
 
 
