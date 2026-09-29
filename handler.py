@@ -28,8 +28,30 @@ COMFYUI_INPUT_DIR = Path(os.environ.get("COMFYUI_INPUT_DIR", "/comfyui/input"))
 COMFYUI_OUTPUT_DIR = Path(os.environ.get("COMFYUI_OUTPUT_DIR", "/comfyui/output"))
 
 READY_TIMEOUT_S = 180  # cold start: image pull is separate; this is ComfyUI's own boot
+MODELS_READY_TIMEOUT_S = 120
 POLL_INTERVAL_S = 2
 JOB_TIMEOUT_S = 1200  # MiniMax H3 video generation is slow - generous ceiling
+
+# Every model file the graph needs, keyed by the loader node class whose
+# combo box lists it (folder_paths.get_filename_list() under the hood).
+# Confirmed against ComfyUI's own source (nodes.py) that these are classic
+# INPUT_TYPES() classmethods re-evaluated fresh on every call - no stale
+# caching. What's NOT guaranteed is that the network volume backing
+# /runpod-volume has finished mounting by the time ComfyUI's HTTP server
+# starts answering requests - confirmed live: a job dispatched immediately
+# after boot saw every one of these combos come back empty even though the
+# files were verified present on the volume via the S3 API at the same
+# moment. This waits for the mount to actually settle instead of trusting
+# /system_stats alone.
+REQUIRED_MODELS = {
+    "UNETLoader": ("unet_name", ["minimax_h3_ref2va_pruned_int8_convrot.safetensors"]),
+    "CLIPLoader": ("clip_name", ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]),
+    "VAELoader": (
+        "vae_name",
+        ["minimax_h3_video_vae_int8_convrot.safetensors", "minimax_h3_audio_vae_fp32.safetensors"],
+    ),
+    "LoraLoaderModelOnly": ("lora_name", ["minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"]),
+}
 
 
 def _wait_for_comfyui_ready() -> None:
@@ -44,6 +66,31 @@ def _wait_for_comfyui_ready() -> None:
             last_err = exc
         time.sleep(1)
     raise RuntimeError(f"ComfyUI did not become ready within {READY_TIMEOUT_S}s: {last_err}")
+
+
+def _wait_for_models_ready() -> None:
+    deadline = time.time() + MODELS_READY_TIMEOUT_S
+    last_missing: dict[str, list[str]] = {}
+    while time.time() < deadline:
+        last_missing = {}
+        for node_class, (input_key, expected_files) in REQUIRED_MODELS.items():
+            try:
+                r = requests.get(f"{COMFYUI_URL}/object_info/{node_class}", timeout=10)
+                r.raise_for_status()
+                options = r.json()[node_class]["input"]["required"][input_key][0]
+            except (requests.RequestException, KeyError, ValueError):
+                last_missing[node_class] = expected_files
+                continue
+            missing = [f for f in expected_files if f not in options]
+            if missing:
+                last_missing[node_class] = missing
+        if not last_missing:
+            return
+        time.sleep(POLL_INTERVAL_S)
+    raise RuntimeError(
+        f"Model files still not visible to ComfyUI after {MODELS_READY_TIMEOUT_S}s "
+        f"(volume mount issue or wrong path in extra_model_paths.yaml): {last_missing}"
+    )
 
 
 def _download_character_refs(character_refs: dict) -> dict:
@@ -133,6 +180,7 @@ def handler(job: dict) -> dict:
     started = time.time()
     try:
         _wait_for_comfyui_ready()
+        _wait_for_models_ready()
         character_filenames = _download_character_refs(character_refs)
         graph = build_scene_graph(scene, character_filenames)
         prompt_id = _queue_prompt(graph)
