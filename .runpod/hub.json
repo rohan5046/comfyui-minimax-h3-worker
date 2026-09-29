@@ -1,0 +1,55 @@
+{
+  "title": "MiniMax H3 Reference-to-Video",
+  "description": "Custom video generation worker: ComfyUI + MiniMax H3 Reference-to-Video, driven by a fixed job contract (scene + character reference images), models loaded from an attached network volume.",
+  "type": "serverless",
+  "category": "video",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 30,
+    "gpuCount": 1,
+    "gpuIds": "AMPERE_80,ADA_80_PRO,HOPPER_141",
+    "allowedCudaVersions": ["12.8", "12.9", "13.0"],
+    "env": [
+      {
+        "key": "R2_ACCOUNT_ID",
+        "input": {
+          "name": "R2 Account ID",
+          "type": "string",
+          "description": "Cloudflare R2 account id for uploading generated videos",
+          "default": "",
+          "advanced": false
+        }
+      },
+      {
+        "key": "R2_ACCESS_KEY_ID",
+        "input": {
+          "name": "R2 Access Key ID",
+          "type": "string",
+          "description": "R2 access key id (same bucket the app uses for uploads)",
+          "default": "",
+          "advanced": false
+        }
+      },
+      {
+        "key": "R2_SECRET_ACCESS_KEY",
+        "input": {
+          "name": "R2 Secret Access Key",
+          "type": "string",
+          "description": "R2 secret access key",
+          "default": "",
+          "advanced": false
+        }
+      },
+      {
+        "key": "R2_BUCKET_NAME",
+        "input": {
+          "name": "R2 Bucket Name",
+          "type": "string",
+          "description": "R2 bucket the app reads/writes uploads and generated outputs from",
+          "default": "",
+          "advanced": false
+        }
+      }
+    ]
+  }
+}

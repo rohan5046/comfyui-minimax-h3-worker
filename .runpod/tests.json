@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "name": "text-only-smoke-test",
+      "input": {
+        "userId": "test-user",
+        "scene": {
+          "id": "001",
+          "camera": "custom",
+          "camera_custom": "static wide shot",
+          "characters": [],
+          "continue_from_previous": false,
+          "continuity": "",
+          "duration": 5,
+          "action": "A calm ocean at sunrise, gentle waves, no people.",
+          "dialogue": [],
+          "audio_tag": "soft ambient waves",
+          "aspect_ratio": "16:9"
+        },
+        "characterRefs": {}
+      },
+      "timeout": 600000
+    }
+  ],
+  "config": {
+    "gpuTypeId": "NVIDIA A100 80GB PCIe",
+    "gpuCount": 1
+  }
+}

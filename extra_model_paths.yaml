@@ -1,0 +1,23 @@
+# Points ComfyUI at the network volume instead of baking models into the
+# image. RunPod mounts a serverless endpoint's attached network volume at
+# /runpod-volume (fixed path, unlike a pod's configurable mount) - see
+# runpod-usage/reference/storage.md.
+#
+# ASSUMPTION, not yet verified against the actual volume
+# (comfyui-minimax-h3-r2v-models, id 1ze2dtvzmy, US-IL-1): this assumes the
+# volume already holds a standard ComfyUI models/ tree
+# (models/diffusion_models/, models/text_encoders/, models/vae/,
+# models/loras/) with these exact filenames directly inside them:
+#   models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
+#   models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+#   models/vae/minimax_h3_video_vae_int8_convrot.safetensors
+#   models/vae/minimax_h3_audio_vae_fp32.safetensors
+#   models/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
+# If the real layout differs, this file is the only thing that needs to
+# change - update the subpaths below to match.
+runpod_volume:
+  base_path: /runpod-volume
+  diffusion_models: models/diffusion_models
+  text_encoders: models/text_encoders
+  vae: models/vae
+  loras: models/loras
