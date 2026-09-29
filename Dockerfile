@@ -17,8 +17,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # future upstream change can't silently break the graph.
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /comfyui
 WORKDIR /comfyui
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu128 \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+# torch/torchvision/torchaudio installed together, LAST, pinned to the same
+# cu128 build - installing plain `torch` before requirements.txt let pip
+# pull in an unpinned, mismatched torchvision afterward, which crashed
+# ComfyUI at import time with "operator torchvision::nms does not exist"
+# (an ABI mismatch, not a missing package - confirmed live on the Hub's
+# test run, A100 80GB, 2026-09-29). Installing the matched triple last
+# guarantees it's the final, authoritative state regardless of what
+# requirements.txt pulled in.
+RUN pip install --no-cache-dir --force-reinstall \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 COPY requirements.txt /worker-requirements.txt
 RUN pip install --no-cache-dir -r /worker-requirements.txt
