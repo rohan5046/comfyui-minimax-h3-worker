@@ -36,13 +36,10 @@ JOB_TIMEOUT_S = 1200  # MiniMax H3 video generation is slow - generous ceiling
 # combo box lists it (folder_paths.get_filename_list() under the hood).
 # Confirmed against ComfyUI's own source (nodes.py) that these are classic
 # INPUT_TYPES() classmethods re-evaluated fresh on every call - no stale
-# caching. What's NOT guaranteed is that the network volume backing
-# /runpod-volume has finished mounting by the time ComfyUI's HTTP server
-# starts answering requests - confirmed live: a job dispatched immediately
-# after boot saw every one of these combos come back empty even though the
-# files were verified present on the volume via the S3 API at the same
-# moment. This waits for the mount to actually settle instead of trusting
-# /system_stats alone.
+# caching. Models now arrive via start.sh's symlink bridge from RunPod's
+# host-cached HF model (see --model-reference on the endpoint) rather than a
+# network volume mount, but this check stays as a cheap readiness gate
+# regardless of how the files got there.
 REQUIRED_MODELS = {
     "UNETLoader": ("unet_name", ["minimax_h3_ref2va_pruned_int8_convrot.safetensors"]),
     "CLIPLoader": ("clip_name", ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]),
@@ -89,7 +86,7 @@ def _wait_for_models_ready() -> None:
         time.sleep(POLL_INTERVAL_S)
     raise RuntimeError(
         f"Model files still not visible to ComfyUI after {MODELS_READY_TIMEOUT_S}s "
-        f"(volume mount issue or wrong path in extra_model_paths.yaml): {last_missing}"
+        f"(check start.sh's symlink bridge ran and the HF model-reference cache is populated): {last_missing}"
     )
 
 
@@ -173,13 +170,11 @@ def _upload_to_r2(local_path: Path, user_id: str) -> str:
 
 def handler(job: dict) -> dict:
     job_input = job["input"]
-    # Platform smoke-test hook (see .runpod/tests.json): a real job always
-    # blocks on _wait_for_models_ready(), which the automated test harness
-    # can never satisfy (it doesn't attach a network volume - confirmed
-    # live, twice, on two different deploy flows). This lets the platform's
-    # required-at-least-one-test config exercise "does the container boot
-    # and answer a job" honestly, without claiming to validate model
-    # loading it structurally cannot reach.
+    # Platform smoke-test hook (see .runpod/tests.json): kept as a fast,
+    # cheap "does the container boot and answer a job" check distinct from
+    # a real job's full _wait_for_models_ready() + generation path - the
+    # test harness may not attach the model-reference cache the same way a
+    # real endpoint deploy does.
     if job_input.get("ping"):
         return {"pong": True}
 

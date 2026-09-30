@@ -1,7 +1,11 @@
-# Video endpoint worker: ComfyUI + MiniMax H3 Reference-to-Video, models
-# mounted from the network volume at /runpod-volume (see
-# extra_model_paths.yaml), everything else baked in (golden-path "bake code,
-# mount data" split).
+# Video endpoint worker: ComfyUI + MiniMax H3 Reference-to-Video. Models are
+# NOT baked in (too large - a real build attempt hit a ~64GB build-machine
+# disk ceiling) and NOT on a network volume (volumes pin the endpoint to one
+# data center, which caused real dispatch failures when that region ran low
+# on GPU stock). Instead they're attached via RunPod's host-cached
+# HuggingFace model feature (--model-reference, set on the endpoint, see
+# start.sh's bridge step) - cached on whichever host a worker lands on, no
+# region lock, no per-job download cost.
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
@@ -54,7 +58,6 @@ RUN pip install --no-cache-dir --force-reinstall \
 COPY requirements.txt /worker-requirements.txt
 RUN pip install --no-cache-dir -r /worker-requirements.txt
 
-COPY extra_model_paths.yaml /extra_model_paths.yaml
 COPY graph_builder.py handler.py /
 COPY workflows /workflows
 COPY start.sh /start.sh
