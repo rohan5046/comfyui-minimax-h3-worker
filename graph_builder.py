@@ -32,6 +32,18 @@ ASPECT_RATIO_MAP = {
 }
 DEFAULT_ASPECT_RATIO = "16:9 (Widescreen)"
 
+# ResolutionSelector's `megapixels` param (node 115) - independent of
+# aspect_ratio, this is the actual resolution-tier control. Values chosen to
+# match real 16:9 pixel counts for these tiers (854x480 ~= 0.41MP rounds to
+# 0.4; 1366x768 ~= 1.05MP rounds to 1.0, which also happens to be this
+# node's own shipped default per comfy_extras/nodes_resolution.py). The app
+# only ever sends "480p"/"768p" (src/components/console/create/types.ts).
+RESOLUTION_MEGAPIXELS_MAP = {
+    "480p": 0.4,
+    "768p": 1.0,
+}
+DEFAULT_MEGAPIXELS = 1.0
+
 MAX_REF_IMAGES = 9
 
 SAVE_VIDEO_NODE_ID = "92"
@@ -105,6 +117,11 @@ def build_scene_graph(scene: dict, character_image_filenames: dict) -> dict:
     aspect_ratio = scene.get("aspect_ratio") or "Auto"
     graph[RESOLUTION_NODE_ID]["inputs"]["aspect_ratio"] = ASPECT_RATIO_MAP.get(
         aspect_ratio, DEFAULT_ASPECT_RATIO
+    )
+
+    resolution = scene.get("resolution")
+    graph[RESOLUTION_NODE_ID]["inputs"]["megapixels"] = RESOLUTION_MEGAPIXELS_MAP.get(
+        resolution, DEFAULT_MEGAPIXELS
     )
 
     duration = scene.get("duration") or 5
