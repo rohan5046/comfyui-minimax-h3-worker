@@ -3,11 +3,24 @@ API-format prompt graph for MiniMax H3 Reference-to-Video.
 
 Base graph is workflows/video_minimax_h3_r2v.json - Comfy-Org's official R2V
 template (node ids below refer to that file). Node 136
-(MiniMaxH3ReferenceToVideo) takes reference images as ref_image_1..ref_image_9
-IMAGE inputs, tagged <Picture i> (1-based) in the prompt text - see
+(MiniMaxH3ReferenceToVideo) takes reference images as an Autogrow input,
+tagged <Picture i> (1-based) in the prompt text - see
 https://docs.comfy.org/built-in-nodes/MiniMaxH3ReferenceToVideo. The stock
 template ships with none wired in (it's a text-only example), so those inputs
 + their LoadImage nodes are added here per job.
+
+IMPORTANT - API-format key syntax for this Autogrow input (confirmed against
+Comfy-Org/ComfyUI issue #15667, closed as "reporter error" but with the real
+answer in the resolving comment): in an API-format /prompt graph these are
+FLAT, DOTTED, and 0-INDEXED keys - "ref_images.ref_image_0",
+"ref_images.ref_image_1", ... - not a nested dict ({"ref_image_1": ...}, which
+ComfyUI's execution.py silently drops with no error - looks conditioned,
+isn't) and not flat 1-indexed keys (ref_image_1, ..., which a newer ComfyUI
+rejects outright with "execute() got an unexpected keyword argument
+'ref_image_1'" - confirmed live via a real failed job on this endpoint,
+2026-09-30). ComfyUI's own execution.py regroups dotted keys through
+_io.build_nested_inputs() before calling execute() - this is the only form
+that's both accepted AND actually affects the output.
 """
 import copy
 import json
@@ -110,7 +123,7 @@ def build_scene_graph(scene: dict, character_image_filenames: dict) -> dict:
             "class_type": "LoadImage",
             "_meta": {"title": f"Load Image - {label}"},
         }
-        graph[REFERENCE_NODE_ID]["inputs"][f"ref_image_{i + 1}"] = [load_image_id, 0]
+        graph[REFERENCE_NODE_ID]["inputs"][f"ref_images.ref_image_{i}"] = [load_image_id, 0]
 
     graph[PROMPT_NODE_ID]["inputs"]["value"] = _build_prompt(scene, ordered_labels)
 
