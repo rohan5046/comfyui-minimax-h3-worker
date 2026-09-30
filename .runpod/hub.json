@@ -8,7 +8,7 @@
     "containerDiskInGb": 30,
     "gpuCount": 1,
     "gpuIds": "AMPERE_80,ADA_80_PRO,HOPPER_141",
-    "allowedCudaVersions": ["12.8", "12.9", "13.0"],
+    "allowedCudaVersions": ["13.0", "13.1", "13.2", "13.3"],
     "env": [
       {
         "key": "R2_ACCOUNT_ID",

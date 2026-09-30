@@ -19,15 +19,26 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /comfyui
 WORKDIR /comfyui
 RUN pip install --no-cache-dir -r requirements.txt
 # torch/torchvision/torchaudio installed together, LAST, pinned to the same
-# cu128 build - installing plain `torch` before requirements.txt let pip
-# pull in an unpinned, mismatched torchvision afterward, which crashed
-# ComfyUI at import time with "operator torchvision::nms does not exist"
-# (an ABI mismatch, not a missing package - confirmed live on the Hub's
-# test run, A100 80GB, 2026-09-29). Installing the matched triple last
-# guarantees it's the final, authoritative state regardless of what
-# requirements.txt pulled in.
+# build - installing plain `torch` before requirements.txt let pip pull in
+# an unpinned, mismatched torchvision afterward, which crashed ComfyUI at
+# import time with "operator torchvision::nms does not exist" (an ABI
+# mismatch, not a missing package - confirmed live, A100 80GB, 2026-09-29).
+# Installing the matched triple last guarantees it's the final,
+# authoritative state regardless of what requirements.txt pulled in.
+#
+# cu130, not cu128: a real generation job on the deployed endpoint (RTX
+# 4090, 2026-09-30) failed mid-VAE-decode with "detect_k_anchor kernel
+# launch failed: CUDA driver version is insufficient for CUDA runtime
+# version" inside comfy_kitchen's int8_attention (MiniMax H3's quantized
+# VAE attention). ComfyUI's own boot log had already been warning
+# "WARNING: You need pytorch with cu130 or higher to use optimized CUDA
+# operations" on every prior run - this is that warning made real, not a
+# benign notice. comfy_kitchen ships prebuilt kernels that need a cu130+
+# runtime regardless of GPU generation; confirmed torch/torchvision/
+# torchaudio 2.11.0 all publish cu130 cp310 manylinux wheels before making
+# this change.
 RUN pip install --no-cache-dir --force-reinstall \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130
 
 COPY requirements.txt /worker-requirements.txt
 RUN pip install --no-cache-dir -r /worker-requirements.txt
