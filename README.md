@@ -35,22 +35,17 @@ or `{ "error": "..." }` on failure.
 
 ## Models
 
-Baked directly into the image at build time (no network volume - see the Dockerfile's
-`wget` block), from [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3):
+Loaded from the attached network volume, mounted at `/runpod-volume` (see
+`extra_model_paths.yaml`). Expected layout — **update this file if your volume's layout
+differs**:
 
 ```
-models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors  (~19.5GB)
-models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors         (~14.6GB)
-models/vae/minimax_h3_video_vae_int8_convrot.safetensors                  (~2.6GB)
-models/vae/minimax_h3_audio_vae_fp32.safetensors                         (~0.6GB)
-models/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors    (~1.8GB)
+/runpod-volume/models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
+/runpod-volume/models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+/runpod-volume/models/vae/minimax_h3_video_vae_int8_convrot.safetensors
+/runpod-volume/models/vae/minimax_h3_audio_vae_fp32.safetensors
+/runpod-volume/models/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
 ```
-
-A network volume was used originally, but volumes are physically pinned to one data
-center - when that region's GPU pool ran low on stock, generation had nowhere to fail
-over to (confirmed live: dispatch failures traced directly to this). Baking the ~39GB of
-weights into the image instead lets the endpoint schedule on any data center with free
-capacity, same as the sibling `comfyui-flux2-klein-worker`.
 
 ## Env vars
 
@@ -63,5 +58,5 @@ bucket the Next.js app uses (see `.env.example` there).
   (Comfy-Org's official R2V template).
 - `handler.py` — RunPod entrypoint: waits for ComfyUI, downloads reference images, submits
   the graph, uploads the result to R2.
-- `Dockerfile` / `start.sh` — bakes ComfyUI, this worker, and the models all into the
-  image.
+- `Dockerfile` / `start.sh` — bakes ComfyUI + this worker; models come from the volume, not
+  the image.

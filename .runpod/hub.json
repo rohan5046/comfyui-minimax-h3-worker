@@ -1,11 +1,11 @@
 {
   "title": "MiniMax H3 Reference-to-Video",
-  "description": "Custom video generation worker: ComfyUI + MiniMax H3 Reference-to-Video, driven by a fixed job contract (scene + character reference images), models baked into the image.",
+  "description": "Custom video generation worker: ComfyUI + MiniMax H3 Reference-to-Video, driven by a fixed job contract (scene + character reference images), models loaded from an attached network volume.",
   "type": "serverless",
   "category": "video",
   "config": {
     "runsOn": "GPU",
-    "containerDiskInGb": 70,
+    "containerDiskInGb": 30,
     "gpuCount": 1,
     "gpuIds": "AMPERE_80,ADA_80_PRO,HOPPER_141",
     "allowedCudaVersions": ["13.0", "13.1", "13.2", "13.3"],
