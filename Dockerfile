@@ -68,28 +68,17 @@ RUN pip install --no-cache-dir -r /worker-requirements.txt
 # that repo's own file listing, and every URL confirmed public/ungated
 # (anonymous HTTP 200) before committing to this Dockerfile, same discipline
 # as the image worker.
-#
-# Split into one RUN per file (not one chained RUN) deliberately: the
-# previous attempt at this failed fast with a generic docker exit-1 and no
-# retrievable logs. One RUN per ~GB-scale download means RunPod's build
-# layer cache (--cache-from/--cache-to, confirmed present in the build
-# command) can resume from whichever file succeeded last time instead of
-# re-downloading all ~39GB on every retry - and if a specific file is the
-# actual problem, it fails in isolation instead of inside one large opaque
-# step. --tries/--waitretry guard against a transient network blip on a
-# multi-GB transfer; -nv (not -q) keeps a size/rate summary line instead of
-# fully silent output, in case fuller build logs become inspectable later.
-RUN mkdir -p models/diffusion_models models/text_encoders models/vae models/loras
-RUN wget -nv --tries=3 --waitretry=10 -O models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors \
-    "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-RUN wget -nv --tries=3 --waitretry=10 -O models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors \
-    "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
-RUN wget -nv --tries=3 --waitretry=10 -O models/vae/minimax_h3_video_vae_int8_convrot.safetensors \
-    "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors"
-RUN wget -nv --tries=3 --waitretry=10 -O models/vae/minimax_h3_audio_vae_fp32.safetensors \
-    "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors"
-RUN wget -nv --tries=3 --waitretry=10 -O models/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors \
-    "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+RUN mkdir -p models/diffusion_models models/text_encoders models/vae models/loras \
+    && wget -q -O models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" \
+    && wget -q -O models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+    && wget -q -O models/vae/minimax_h3_video_vae_int8_convrot.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors" \
+    && wget -q -O models/vae/minimax_h3_audio_vae_fp32.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors" \
+    && wget -q -O models/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 
 COPY graph_builder.py handler.py /
 COPY workflows /workflows
