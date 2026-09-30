@@ -153,18 +153,31 @@ def _extract_video_file(history_entry: dict) -> Path:
     raise RuntimeError(f"No video found in history output for node {SAVE_VIDEO_NODE_ID}: {outputs}")
 
 
-def _upload_to_r2(local_path: Path, user_id: str) -> str:
+def _upload_to_r2(local_path: Path, user_id: str, r2_creds: dict | None) -> str:
+    # r2_creds comes from the job's own input (src/lib/runpod.ts's
+    # buildWorkflowPayload) - this endpoint is shared across the app's
+    # Preview and Production environments, which use DIFFERENT R2
+    # buckets/credentials, but this endpoint's own env vars are fixed to one.
+    # Confirmed live as a real bug: Preview jobs completed fine, but the
+    # generated output 404'd when Preview tried to read it back, because it
+    # had been uploaded here to Production's bucket instead. Falls back to
+    # this container's own env vars only for the rare case a job arrives
+    # without r2_creds (e.g. an older app deploy, or manual testing).
+    r2_creds = r2_creds or {}
+    account_id = r2_creds.get("accountId") or os.environ["R2_ACCOUNT_ID"]
+    access_key_id = r2_creds.get("accessKeyId") or os.environ["R2_ACCESS_KEY_ID"]
+    secret_access_key = r2_creds.get("secretAccessKey") or os.environ["R2_SECRET_ACCESS_KEY"]
+    bucket_name = r2_creds.get("bucketName") or os.environ["R2_BUCKET_NAME"]
+
     key = f"users/{user_id}/outputs/{uuid.uuid4().hex}.mp4"
     client = boto3.client(
         "s3",
-        endpoint_url=f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
-        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+        aws_access_key_id=access_key_id,
+        aws_secret_access_key=secret_access_key,
         region_name="auto",
     )
-    client.upload_file(
-        str(local_path), os.environ["R2_BUCKET_NAME"], key, ExtraArgs={"ContentType": "video/mp4"}
-    )
+    client.upload_file(str(local_path), bucket_name, key, ExtraArgs={"ContentType": "video/mp4"})
     return key
 
 
@@ -181,6 +194,7 @@ def handler(job: dict) -> dict:
     user_id = job_input["userId"]
     scene = job_input["scene"]
     character_refs = job_input.get("characterRefs") or {}
+    r2_creds = job_input.get("r2")
 
     started = time.time()
     try:
@@ -191,7 +205,7 @@ def handler(job: dict) -> dict:
         prompt_id = _queue_prompt(graph)
         history_entry = _wait_for_completion(prompt_id)
         video_path = _extract_video_file(history_entry)
-        output_key = _upload_to_r2(video_path, user_id)
+        output_key = _upload_to_r2(video_path, user_id, r2_creds)
     except Exception as exc:  # noqa: BLE001 - the app's webhook contract
         # wants a string in output.error, not an unhandled-exception job
         # failure (apply-job-result.ts checks output?.error explicitly).
