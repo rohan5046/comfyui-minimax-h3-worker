@@ -34,15 +34,12 @@ JOB_TIMEOUT_S = 1200  # MiniMax H3 video generation is slow - generous ceiling
 
 # Every model file the graph needs, keyed by the loader node class whose
 # combo box lists it (folder_paths.get_filename_list() under the hood).
-# Confirmed against ComfyUI's own source (nodes.py) that these are classic
-# INPUT_TYPES() classmethods re-evaluated fresh on every call - no stale
-# caching. What's NOT guaranteed is that the network volume backing
-# /runpod-volume has finished mounting by the time ComfyUI's HTTP server
-# starts answering requests - confirmed live: a job dispatched immediately
-# after boot saw every one of these combos come back empty even though the
-# files were verified present on the volume via the S3 API at the same
-# moment. This waits for the mount to actually settle instead of trusting
-# /system_stats alone.
+# Models are baked into the image now (no network volume), so these combos
+# are populated from local disk at ComfyUI boot and this check should pass
+# on its first poll - kept as a defensive readiness gate anyway rather than
+# trusting /system_stats alone, since it's cheap and catches a genuinely
+# missing/misnamed file immediately instead of failing deep inside a graph
+# submission.
 REQUIRED_MODELS = {
     "UNETLoader": ("unet_name", ["minimax_h3_ref2va_pruned_int8_convrot.safetensors"]),
     "CLIPLoader": ("clip_name", ["qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]),
@@ -89,7 +86,7 @@ def _wait_for_models_ready() -> None:
         time.sleep(POLL_INTERVAL_S)
     raise RuntimeError(
         f"Model files still not visible to ComfyUI after {MODELS_READY_TIMEOUT_S}s "
-        f"(volume mount issue or wrong path in extra_model_paths.yaml): {last_missing}"
+        f"(missing/misnamed file baked into the image - check the Dockerfile's wget block): {last_missing}"
     )
 
 
@@ -173,13 +170,12 @@ def _upload_to_r2(local_path: Path, user_id: str) -> str:
 
 def handler(job: dict) -> dict:
     job_input = job["input"]
-    # Platform smoke-test hook (see .runpod/tests.json): a real job always
-    # blocks on _wait_for_models_ready(), which the automated test harness
-    # can never satisfy (it doesn't attach a network volume - confirmed
-    # live, twice, on two different deploy flows). This lets the platform's
-    # required-at-least-one-test config exercise "does the container boot
-    # and answer a job" honestly, without claiming to validate model
-    # loading it structurally cannot reach.
+    # Platform smoke-test hook (see .runpod/tests.json): kept as a fast,
+    # cheap "does the container boot and answer a job" check distinct from
+    # a real job's full _wait_for_models_ready() + generation path, even
+    # though models being baked into the image now means that full path
+    # could also pass in the test harness (it no longer depends on a
+    # network volume being attached).
     if job_input.get("ping"):
         return {"pong": True}
 

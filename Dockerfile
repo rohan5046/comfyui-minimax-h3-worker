@@ -1,7 +1,14 @@
-# Video endpoint worker: ComfyUI + MiniMax H3 Reference-to-Video, models
-# mounted from the network volume at /runpod-volume (see
-# extra_model_paths.yaml), everything else baked in (golden-path "bake code,
-# mount data" split).
+# Video endpoint worker: ComfyUI + MiniMax H3 Reference-to-Video, models now
+# baked directly into the image (matching the sibling flux2-klein-worker),
+# NOT mounted from a network volume anymore. The volume-mounted setup pinned
+# this endpoint to a single data center (US-IL-1, where the volume lives) -
+# network volumes are physically tied to one region, so RunPod's scheduler
+# could never fail over anywhere else when that region's ADA_24 pool ran
+# low on stock (confirmed live: "endpoint not found"/no-capacity failures
+# traced to exactly this). Baking the ~39GB of weights into the image
+# instead removes that region lock entirely - the endpoint can schedule on
+# any data center with free capacity, same as the image worker already
+# does, at the cost of a much larger one-time image build/push.
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
@@ -54,7 +61,25 @@ RUN pip install --no-cache-dir --force-reinstall \
 COPY requirements.txt /worker-requirements.txt
 RUN pip install --no-cache-dir -r /worker-requirements.txt
 
-COPY extra_model_paths.yaml /extra_model_paths.yaml
+# Model files baked directly into ComfyUI's own default models/ tree - no
+# extra_model_paths.yaml, no network volume. Source: Comfy-Org/MiniMax-H3 on
+# HuggingFace (the same official org that published flux2-klein's files for
+# the sibling worker) - confirmed this exact filename/subpath layout via
+# that repo's own file listing, and every URL confirmed public/ungated
+# (anonymous HTTP 200) before committing to this Dockerfile, same discipline
+# as the image worker.
+RUN mkdir -p models/diffusion_models models/text_encoders models/vae models/loras \
+    && wget -q -O models/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors" \
+    && wget -q -O models/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+    && wget -q -O models/vae/minimax_h3_video_vae_int8_convrot.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_int8_convrot.safetensors" \
+    && wget -q -O models/vae/minimax_h3_audio_vae_fp32.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors" \
+    && wget -q -O models/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors \
+       "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+
 COPY graph_builder.py handler.py /
 COPY workflows /workflows
 COPY start.sh /start.sh
