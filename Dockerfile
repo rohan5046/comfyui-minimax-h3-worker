@@ -5,15 +5,19 @@
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1
-# build-essential (gcc/g++/make): the cu130 torch build (see below) has a
-# newer torch._native ops registry that JIT-compiles some kernels via
-# Triton at first use (confirmed live, RTX 4090, 2026-09-30: MiniMax H3's
-# Qwen3-VL text encoder failed the CLIP-encode step with "Failed to find C
-# compiler" while computing rotary embeddings) - not something the cu128
-# build on this same image ever hit, so easy to miss until you exercise the
-# actual text-encoding path, not just VAE/model loading.
+# build-essential (gcc/g++/make) + python3-dev: the cu130 torch build (see
+# below) has a newer torch._native ops registry that JIT-compiles some
+# kernels via Triton at first use (confirmed live, RTX 4090, 2026-09-30:
+# MiniMax H3's Qwen3-VL text encoder failed the CLIP-encode step with
+# "Failed to find C compiler" while computing rotary embeddings) - not
+# something the cu128 build on this same image ever hit, so easy to miss
+# until you exercise the actual text-encoding path, not just VAE/model
+# loading. build-essential alone wasn't enough (confirmed live, A100 80GB,
+# 2026-09-30): gcc ran but failed compiling Triton's driver.c with exit
+# status 1 - that file #includes Python.h, which python3-dev provides and
+# a bare python3/python3-pip install doesn't.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip git ffmpeg libgl1 build-essential \
+    python3 python3-pip python3-dev git ffmpeg libgl1 build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Pinned to `master`, not a release tag: MiniMaxH3ReferenceToVideo,
