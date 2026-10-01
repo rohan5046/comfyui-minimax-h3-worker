@@ -104,6 +104,22 @@ def _download_character_refs(character_refs: dict) -> dict:
     return filenames
 
 
+def _download_audio_refs(audio_refs: dict) -> dict:
+    """Same as _download_character_refs, for scene["audio_refs"] voice-timbre
+    reference clips. Written with a .wav extension regardless of the actual
+    source encoding - same reasoning as the image path's hardcoded .png:
+    ComfyUI's LoadAudio sniffs the real format from content (torchaudio/
+    soundfile), not the filename extension."""
+    COMFYUI_INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    filenames: dict[str, str] = {}
+    for label, url in (audio_refs or {}).items():
+        filename = f"ref_{uuid.uuid4().hex}.wav"
+        dest = COMFYUI_INPUT_DIR / filename
+        urllib.request.urlretrieve(url, dest)  # noqa: S310 - url is our own R2 presigned GET
+        filenames[label] = filename
+    return filenames
+
+
 def _queue_prompt(graph: dict) -> str:
     r = requests.post(f"{COMFYUI_URL}/prompt", json={"prompt": graph}, timeout=30)
     # ComfyUI answers a validation failure with HTTP 400 and the actual
@@ -194,6 +210,7 @@ def handler(job: dict) -> dict:
     user_id = job_input["userId"]
     scene = job_input["scene"]
     character_refs = job_input.get("characterRefs") or {}
+    audio_refs = job_input.get("audioRefs") or {}
     r2_creds = job_input.get("r2")
 
     started = time.time()
@@ -201,7 +218,8 @@ def handler(job: dict) -> dict:
         _wait_for_comfyui_ready()
         _wait_for_models_ready()
         character_filenames = _download_character_refs(character_refs)
-        graph = build_scene_graph(scene, character_filenames)
+        audio_filenames = _download_audio_refs(audio_refs)
+        graph = build_scene_graph(scene, character_filenames, audio_filenames)
         prompt_id = _queue_prompt(graph)
         history_entry = _wait_for_completion(prompt_id)
         video_path = _extract_video_file(history_entry)

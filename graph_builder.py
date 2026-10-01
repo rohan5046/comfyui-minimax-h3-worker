@@ -58,6 +58,10 @@ RESOLUTION_MEGAPIXELS_MAP = {
 DEFAULT_MEGAPIXELS = 1.0
 
 MAX_REF_IMAGES = 9
+# docs.comfy.org/built-in-nodes/MiniMaxH3ReferenceToVideo: "Growable slot:
+# connect up to 3 standalone reference audio clips" - a real, lower cap than
+# ref_images, not a guess.
+MAX_REF_AUDIOS = 3
 
 SAVE_VIDEO_NODE_ID = "92"
 PROMPT_NODE_ID = "138"
@@ -67,14 +71,19 @@ SEED_NODE_ID = "129"
 REFERENCE_NODE_ID = "136"
 
 
-def _build_prompt(scene: dict, ordered_labels: list[str]) -> str:
+def _build_prompt(scene: dict, ordered_image_labels: list[str], ordered_audio_labels: list[str]) -> str:
     """Composes the free-text prompt. Reference tags are listed up front so
-    the model has an explicit label -> <Picture i> mapping, then the scene's
-    own description/camera/audio guidance follows."""
+    the model has an explicit label -> <Picture i>/<Audio j> mapping (both
+    1-based, confirmed against docs.comfy.org - images and audio are
+    independently numbered, not a shared sequence), then the scene's own
+    description/camera/audio guidance follows."""
     lines = []
-    if ordered_labels:
-        tags = ", ".join(f"<Picture {i + 1}> = {label}" for i, label in enumerate(ordered_labels))
+    if ordered_image_labels:
+        tags = ", ".join(f"<Picture {i + 1}> = {label}" for i, label in enumerate(ordered_image_labels))
         lines.append(f"Reference images: {tags}.")
+    if ordered_audio_labels:
+        tags = ", ".join(f"<Audio {i + 1}> = {label}" for i, label in enumerate(ordered_audio_labels))
+        lines.append(f"Reference audio: {tags}.")
     action = (scene.get("action") or "").strip()
     if action:
         lines.append(action)
@@ -87,7 +96,11 @@ def _build_prompt(scene: dict, ordered_labels: list[str]) -> str:
     return "\n\n".join(lines)
 
 
-def build_scene_graph(scene: dict, character_image_filenames: dict) -> dict:
+def build_scene_graph(
+    scene: dict,
+    character_image_filenames: dict,
+    reference_audio_filenames: dict | None = None,
+) -> dict:
     """
     scene: the PublicVideoScene dict (see src/lib/scene-validation.ts).
     character_image_filenames: {label: filename}, where filename is a file
@@ -95,27 +108,41 @@ def build_scene_graph(scene: dict, character_image_filenames: dict) -> dict:
       widget takes a filename it resolves relative to input/, never a URL -
       handler.py downloads each characterRefs[label] presigned URL there
       before calling this function).
+    reference_audio_filenames: same shape as character_image_filenames, but
+      for scene["audio_refs"] - voice-timbre reference clips, wired into the
+      same node's separate ref_audios Autogrow input (handler.py downloads
+      each audioRefs[label] presigned URL the same way).
 
     Returns a fresh API-format prompt graph (dict of node id -> node),
     independent of _BASE_WORKFLOW (deep-copied, safe to mutate per job).
     """
     graph = copy.deepcopy(_BASE_WORKFLOW)
+    reference_audio_filenames = reference_audio_filenames or {}
 
     # Only characters actually named in scene["characters"] AND present in
     # character_image_filenames get wired in - order follows
     # scene["characters"] so the <Picture i> tags in the composed prompt
-    # line up with the ref_image_i slots below.
-    ordered_labels = [
+    # line up with the ref_image_i slots below. Same reasoning for
+    # scene["audio_refs"] / ref_audio_i, independently.
+    ordered_image_labels = [
         label for label in scene.get("characters", []) if label in character_image_filenames
     ]
-    if len(ordered_labels) > MAX_REF_IMAGES:
+    ordered_audio_labels = [
+        label for label in scene.get("audio_refs", []) if label in reference_audio_filenames
+    ]
+    if len(ordered_image_labels) > MAX_REF_IMAGES:
         raise ValueError(
             f"MiniMax H3 Reference-to-Video supports at most {MAX_REF_IMAGES} reference "
-            f"images, got {len(ordered_labels)}"
+            f"images, got {len(ordered_image_labels)}"
+        )
+    if len(ordered_audio_labels) > MAX_REF_AUDIOS:
+        raise ValueError(
+            f"MiniMax H3 Reference-to-Video supports at most {MAX_REF_AUDIOS} reference "
+            f"audio clips, got {len(ordered_audio_labels)}"
         )
 
     next_node_id = max(int(node_id) for node_id in graph) + 1
-    for i, label in enumerate(ordered_labels):
+    for i, label in enumerate(ordered_image_labels):
         load_image_id = str(next_node_id)
         next_node_id += 1
         graph[load_image_id] = {
@@ -125,7 +152,17 @@ def build_scene_graph(scene: dict, character_image_filenames: dict) -> dict:
         }
         graph[REFERENCE_NODE_ID]["inputs"][f"ref_images.ref_image_{i}"] = [load_image_id, 0]
 
-    graph[PROMPT_NODE_ID]["inputs"]["value"] = _build_prompt(scene, ordered_labels)
+    for i, label in enumerate(ordered_audio_labels):
+        load_audio_id = str(next_node_id)
+        next_node_id += 1
+        graph[load_audio_id] = {
+            "inputs": {"audio": reference_audio_filenames[label]},
+            "class_type": "LoadAudio",
+            "_meta": {"title": f"Load Audio - {label}"},
+        }
+        graph[REFERENCE_NODE_ID]["inputs"][f"ref_audios.ref_audio_{i}"] = [load_audio_id, 0]
+
+    graph[PROMPT_NODE_ID]["inputs"]["value"] = _build_prompt(scene, ordered_image_labels, ordered_audio_labels)
 
     aspect_ratio = scene.get("aspect_ratio") or "Auto"
     graph[RESOLUTION_NODE_ID]["inputs"]["aspect_ratio"] = ASPECT_RATIO_MAP.get(
