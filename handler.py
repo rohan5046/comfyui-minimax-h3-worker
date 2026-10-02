@@ -14,12 +14,12 @@ as a background process before this process starts (see Dockerfile).
 import os
 import time
 import uuid
-import urllib.request
 from pathlib import Path
 
 import boto3
 import requests
 import runpod
+from botocore.config import Config as BotoConfig
 
 from graph_builder import build_scene_graph, SAVE_VIDEO_NODE_ID
 
@@ -31,6 +31,8 @@ READY_TIMEOUT_S = 180  # cold start: image pull is separate; this is ComfyUI's o
 MODELS_READY_TIMEOUT_S = 120
 POLL_INTERVAL_S = 2
 JOB_TIMEOUT_S = 1200  # MiniMax H3 video generation is slow - generous ceiling
+DOWNLOAD_TIMEOUT_S = 60  # a reference image/audio clip is small over a presigned R2 GET - generous, still bounded
+UPLOAD_TIMEOUT_S = 180  # a generated video is bigger than an image upload - same reasoning, wider ceiling
 
 # Every model file the graph needs, keyed by the loader node class whose
 # combo box lists it (folder_paths.get_filename_list() under the hood).
@@ -90,6 +92,18 @@ def _wait_for_models_ready() -> None:
     )
 
 
+def _download_to_file(url: str, dest: Path) -> None:
+    """requests.get with an explicit timeout, not urllib.request.urlretrieve
+    - urlretrieve has no timeout parameter at all, so a slow/unreachable R2
+    endpoint at exactly this moment would hang indefinitely (caught by
+    handler()'s outer try/except eventually, but with no bound of its own -
+    burning real GPU-second billing and holding the worker's one available
+    slot for no reason)."""
+    r = requests.get(url, timeout=DOWNLOAD_TIMEOUT_S)
+    r.raise_for_status()
+    dest.write_bytes(r.content)
+
+
 def _download_character_refs(character_refs: dict) -> dict:
     """Downloads each {label: presigned_get_url} into ComfyUI's input/ dir.
     Returns {label: filename} for graph_builder.build_scene_graph - LoadImage
@@ -98,8 +112,7 @@ def _download_character_refs(character_refs: dict) -> dict:
     filenames: dict[str, str] = {}
     for label, url in (character_refs or {}).items():
         filename = f"ref_{uuid.uuid4().hex}.png"
-        dest = COMFYUI_INPUT_DIR / filename
-        urllib.request.urlretrieve(url, dest)  # noqa: S310 - url is our own R2 presigned GET
+        _download_to_file(url, COMFYUI_INPUT_DIR / filename)
         filenames[label] = filename
     return filenames
 
@@ -114,8 +127,7 @@ def _download_audio_refs(audio_refs: dict) -> dict:
     filenames: dict[str, str] = {}
     for label, url in (audio_refs or {}).items():
         filename = f"ref_{uuid.uuid4().hex}.wav"
-        dest = COMFYUI_INPUT_DIR / filename
-        urllib.request.urlretrieve(url, dest)  # noqa: S310 - url is our own R2 presigned GET
+        _download_to_file(url, COMFYUI_INPUT_DIR / filename)
         filenames[label] = filename
     return filenames
 
@@ -192,6 +204,11 @@ def _upload_to_r2(local_path: Path, user_id: str, r2_creds: dict | None) -> str:
         aws_access_key_id=access_key_id,
         aws_secret_access_key=secret_access_key,
         region_name="auto",
+        # boto3 has no request timeout at all by default - same reasoning
+        # as _download_to_file's switch away from urlretrieve. A small
+        # retry count pairs naturally with a timeout: a single R2 blip
+        # shouldn't fail an otherwise-successful generation.
+        config=BotoConfig(connect_timeout=10, read_timeout=UPLOAD_TIMEOUT_S, retries={"max_attempts": 2}),
     )
     client.upload_file(str(local_path), bucket_name, key, ExtraArgs={"ContentType": "video/mp4"})
     return key
